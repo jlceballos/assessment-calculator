@@ -2,7 +2,7 @@
 <html lang="en"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="application-version" content="v1_152">
+    <meta name="application-version" content="v1_153">
     <meta name="robots" content="noindex, nofollow">
     <title>Assessment Calculator</title>
     <style>
@@ -9318,14 +9318,9 @@ div.WordSection1
 
         const DIV1_CREDIT_TEXT = 'A Division 1 Proposal is recorded on your credit report, and we will go over exactly how long it stays there when we meet. We will also guide you on rebuilding your credit throughout the program.';
 
+        // The Division 1 note in the quote email (Division 1 only), in plain words.
         function getDivision1NoteText() {
-            const d = getDivision1DebtTotals();
-            const why = d.unsecured > DIV1_DEBT_LIMIT
-                ? 'Because your unsecured debts are over $250,000, your proposal will be filed as a Division 1 Proposal. '
-                : d.total > DIV1_DEBT_LIMIT
-                    ? `Because your debts${d.owns ? ', not counting the mortgage on your home,' : ''} are over $250,000, your proposal will be filed as a Division 1 Proposal. `
-                    : 'Your proposal will be filed as a Division 1 Proposal. ';
-            return why + 'Creditors vote on it within 21 days of filing, and the court must then approve it. If it isn’t accepted, you automatically go into bankruptcy, so we’ll review your offer with you carefully before filing.';
+            return 'Your creditors vote within 21 days of filing, then the court must approve it, usually 2 to 6 months in total. Until then, you’re protected and pay nothing to creditors; your monthly payments start once it’s approved. It passes when two things happen: more than half of the creditors who vote say yes, and those creditors are owed at least two-thirds of the total debt in the vote. If not, we keep negotiating and can adjust the offer. Bankruptcy happens only if it still doesn’t pass, which is rare.';
         }
 
         function buildDivision1NoteHtml() {
