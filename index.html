@@ -2,7 +2,7 @@
 <html lang="en"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="application-version" content="v1_147">
+    <meta name="application-version" content="v1_152">
     <meta name="robots" content="noindex, nofollow">
     <title>Assessment Calculator</title>
     <style>
@@ -2686,7 +2686,7 @@ TD Mastercard 1200"></textarea>
                                 <div id="filingTypeBody" style="display:none;">
                                     <select id="in_filingTypeSelect" onchange="syncIntakeToCalc()">
                                         <option value="div2" selected="selected">CP (10% selling cost)</option>
-                                        <option value="div1">Div 1 (5% selling cost)</option>
+                                        <option value="div1">Div 1 (5% + $2k legal)</option>
                                         <option value="bankruptcy">BK (no selling cost)</option>
                                     </select>
                                 </div>
@@ -4418,6 +4418,14 @@ TD Mastercard 1200"></textarea>
             return 0.10;
         }
 
+        // Legal fees taken off each property's sale price on top of the selling
+        // cost: $2,000 a property for a Division 1 Proposal, none otherwise.
+        const DIV1_LEGAL_FEE = 2000;
+        function getSellingLegalFee() {
+            const filingType = document.getElementById('in_filingTypeSelect')?.value || 'div2';
+            return filingType === 'div1' ? DIV1_LEGAL_FEE : 0;
+        }
+
         // ============================================================
         // UNDO TOAST — deletes happen immediately (no blocking confirm
         // dialog); a brief toast offers one-click undo instead. Only one
@@ -5117,7 +5125,7 @@ function parseInternalNotes(text) {
                 document.getElementById('in_priorBK').value = priorBKValue;
             }
             if (parsed.filingType) {
-                const filingNameToCode = { 'CP (10% selling cost)': 'div2', 'Div 1 (5% selling cost)': 'div1', 'BK (no selling cost)': 'bankruptcy', 'Division 1 Proposal': 'div1', 'Bankruptcy': 'bankruptcy' };
+                const filingNameToCode = { 'CP (10% selling cost)': 'div2', 'Div 1 (5% + $2k legal)': 'div1', 'Div 1 (5% + $2,000 legal)': 'div1', 'Div 1 (5% selling cost + $2,000 legal)': 'div1', 'Div 1 (5% selling cost)': 'div1', 'BK (no selling cost)': 'bankruptcy', 'Division 1 Proposal': 'div1', 'Bankruptcy': 'bankruptcy' };
                 const code = filingNameToCode[parsed.filingType];
                 if (code) document.getElementById('in_filingTypeSelect').value = code;
             }
@@ -7731,6 +7739,35 @@ function parseInternalNotes(text) {
             syncIntakeToCalc();
         }
 
+        // What counts toward the $250,000 Division 1 test: every unsecured debt, plus
+        // the mortgage and Additional Secured Debts on the second property and any
+        // after it (the first property listed is the home and is never counted),
+        // plus the financing on every vehicle. Properties only count when Housing is
+        // Own, as everywhere else in the tool.
+        const DIV1_DEBT_LIMIT = 250000;
+        function getDivision1DebtTotals() {
+            const unsecured = intakeDebtsList.reduce((sum, d) => sum + (d.amount || 0), 0);
+            const owns = document.getElementById('in_housingType').value === 'Own';
+            const otherProps = owns ? intakePropertyList.slice(1) : [];
+            const otherProperty = otherProps.reduce((sum, prop) => sum + (prop.mortgage || 0)
+                + (prop.securedDebts || []).reduce((s2, sd) => s2 + (sd.amount || 0), 0), 0);
+            const vehicles = intakeVehiclesList.reduce((sum, v) => sum + (v.loan || 0), 0);
+            return { unsecured, otherProperty, vehicles, owns, otherPropertyCount: otherProps.length,
+                     total: unsecured + otherProperty + vehicles };
+        }
+
+        // The banner's wording: the original line when unsecured debts alone are
+        // over the limit, otherwise the sum that puts the client over it.
+        function buildDiv1BannerHtml(d) {
+            const tail = ' Filing automatically converted to a <strong>Division 1 Proposal</strong>.';
+            if (d.unsecured > DIV1_DEBT_LIMIT) return '\u26a0\ufe0f Total unsecured debts exceed $250,000.' + tail;
+            const parts = [`unsecured ${fmtCurr(d.unsecured)}`];
+            if (d.otherProperty > 0) parts.push(`${d.otherPropertyCount > 1 ? 'other properties' : 'second property'} ${fmtCurr(d.otherProperty)}`);
+            if (d.vehicles > 0) parts.push(`vehicle financing ${fmtCurr(d.vehicles)}`);
+            const homeNote = d.owns ? ' (the home&rsquo;s mortgage isn&rsquo;t counted)' : '';
+            return `\u26a0\ufe0f Debts exceed $250,000: ${parts.join(' + ')} = ${fmtCurr(d.total)}${homeNote}.` + tail;
+        }
+
         function syncIntakeToCalc() {
             const selectedProv = document.getElementById('in_provinceSelect').value;
             const selectedPriorBK = document.getElementById('in_priorBK').value;
@@ -7751,18 +7788,20 @@ function parseInternalNotes(text) {
                 document.getElementById('in_ctbVal').value = '';
             }
 
-            let totalUnsecuredDebtVal = intakeDebtsList.reduce((sum, d) => sum + (d.amount || 0), 0);
+            const div1Debts = getDivision1DebtTotals();
+            const overDiv1Limit = div1Debts.total > DIV1_DEBT_LIMIT;
             const div1Banner = document.getElementById('div1Banner');
 
-            if (totalUnsecuredDebtVal > 250000 && selectedFiling === 'div2') {
+            if (overDiv1Limit && selectedFiling === 'div2') {
                 selectedFiling = 'div1';
                 document.getElementById('in_filingTypeSelect').value = 'div1';
                 div1Banner.style.display = 'block';
-            } else if (totalUnsecuredDebtVal > 250000 && selectedFiling !== 'bankruptcy') {
+            } else if (overDiv1Limit && selectedFiling !== 'bankruptcy') {
                 div1Banner.style.display = 'block';
             } else {
                 div1Banner.style.display = 'none';
             }
+            if (overDiv1Limit) div1Banner.innerHTML = buildDiv1BannerHtml(div1Debts);
 
             document.getElementById('provinceSelect').value = selectedProv;
             document.getElementById('priorBK').value = selectedPriorBK;
@@ -8219,7 +8258,10 @@ function parseInternalNotes(text) {
 
                 if (asset.type === 'Property') {
                     const sellingCostRate = getSellingCostRate();
-                    const netGross = asset.gross * (1 - sellingCostRate);
+                    // Division 1 also takes $2,000 legal fees off each property (this
+                    // client's share of it when co-owned, the same as the selling cost).
+                    const legalFee = getSellingLegalFee() * ((asset.ownershipFraction != null) ? asset.ownershipFraction : 1);
+                    const netGross = asset.gross * (1 - sellingCostRate) - legalFee;
                     equity = Math.max(0, netGross - asset.lien);
 
                     if (asset.enableExemption === false) {
@@ -9241,9 +9283,13 @@ div.WordSection1
             return `${lead}your ${totalLoan} won’t be fully eliminated by either option. With a proposal, ${proposalPart.charAt(0).toLowerCase()}${proposalPart.slice(1)} With a bankruptcy, you will still need to repay ${them} after you’re discharged.`;
         }
 
-        // A highlighted note box in the quote emails (green bar on the left).
+        // A highlighted note box in the emails (green bar on the left). The gap above
+        // it is the top padding of a cell that wraps it: mail programs drop or ignore
+        // a table's margin and blank lines between tables when the email is pasted,
+        // but keep cell padding (it's what spaces the Summary's option cards too).
         function buildEmailNoteHtml(title, text) {
-            return `<table class=MsoNormalTable border=0 cellspacing=0 cellpadding=0 width="100%" style='width:100.0%;margin-top:12.0pt;border-collapse:collapse;mso-yfti-tbllook:1184;mso-padding-alt:0in 0in 0in 0in'><tr style='mso-yfti-irow:0;mso-yfti-firstrow:yes;mso-yfti-lastrow:yes'><td style='background:#F6F8F7;border:none;border-left:solid #08815E 3.0pt;mso-border-left-alt:solid #08815E 3.0pt;padding:9.0pt 12.0pt 9.0pt 12.0pt'><p class=MsoNormal style='margin-bottom:3.0pt'><b><span style='font-size:10.0pt;font-family:"Segoe UI",sans-serif;mso-fareast-font-family:"Times New Roman";color:#1A221D'>${title}<o:p></o:p></span></b></p><p class=MsoNormal style='line-height:15.0pt'><span style='font-size:10.0pt;font-family:"Segoe UI",sans-serif;mso-fareast-font-family:"Times New Roman";color:#4A544E'>${escapeHtml(text)}<o:p></o:p></span></p></td></tr></table>`;
+            const box = `<table class=MsoNormalTable border=0 cellspacing=0 cellpadding=0 width="100%" style='width:100.0%;border-collapse:collapse;mso-yfti-tbllook:1184;mso-padding-alt:0in 0in 0in 0in'><tr style='mso-yfti-irow:0;mso-yfti-firstrow:yes;mso-yfti-lastrow:yes'><td style='background:#F6F8F7;border:none;border-left:solid #08815E 3.0pt;mso-border-left-alt:solid #08815E 3.0pt;padding:9.0pt 12.0pt 9.0pt 12.0pt'><p class=MsoNormal style='margin-bottom:3.0pt'><b><span style='font-size:10.0pt;font-family:"Segoe UI",sans-serif;mso-fareast-font-family:"Times New Roman";color:#1A221D'>${title}<o:p></o:p></span></b></p><p class=MsoNormal style='line-height:15.0pt'><span style='font-size:10.0pt;font-family:"Segoe UI",sans-serif;mso-fareast-font-family:"Times New Roman";color:#4A544E'>${escapeHtml(text)}<o:p></o:p></span></p></td></tr></table>`;
+            return `<table class=MsoNormalTable border=0 cellspacing=0 cellpadding=0 width="100%" style='width:100.0%;border-collapse:collapse;mso-yfti-tbllook:1184;mso-padding-alt:0in 0in 0in 0in'><tr style='mso-yfti-irow:0;mso-yfti-firstrow:yes;mso-yfti-lastrow:yes'><td style='padding:12.0pt 0in 0in 0in'>${box}</td></tr></table>`;
         }
 
         function buildStudentLoanNoteHtml(kind) {
@@ -9255,7 +9301,7 @@ div.WordSection1
 
         // ---- Division 1 Proposal version of the Quote CP email ----
         // Used whenever the Filing Type is Division 1 (chosen, or switched to
-        // automatically because unsecured debts are over $250,000). The email is
+        // automatically because debts are over $250,000 (getDivision1DebtTotals)). The email is
         // the same as the Consumer Proposal one apart from its name, a short note
         // on how a Division 1 Proposal differs, and the credit-report paragraph
         // (the "3 years after your final payment" timing is the consumer
@@ -9273,11 +9319,13 @@ div.WordSection1
         const DIV1_CREDIT_TEXT = 'A Division 1 Proposal is recorded on your credit report, and we will go over exactly how long it stays there when we meet. We will also guide you on rebuilding your credit throughout the program.';
 
         function getDivision1NoteText() {
-            const totalDebt = (defaultDebts || []).reduce((sum, d) => sum + (d.amount || 0), 0);
-            const why = totalDebt > 250000
-                ? 'Because your unsecured debts are over $250,000, your proposal will be filed as a Division 1 Proposal instead of a Consumer Proposal. '
-                : 'Your proposal will be filed as a Division 1 Proposal instead of a Consumer Proposal. ';
-            return why + 'It works much the same way, with a few differences: your creditors vote on it at a meeting held within 21 days of filing, and once they accept it, it also needs the court’s approval. If your creditors vote against it, you would automatically become bankrupt, so we will go over the offer with you carefully before it is filed.';
+            const d = getDivision1DebtTotals();
+            const why = d.unsecured > DIV1_DEBT_LIMIT
+                ? 'Because your unsecured debts are over $250,000, your proposal will be filed as a Division 1 Proposal. '
+                : d.total > DIV1_DEBT_LIMIT
+                    ? `Because your debts${d.owns ? ', not counting the mortgage on your home,' : ''} are over $250,000, your proposal will be filed as a Division 1 Proposal. `
+                    : 'Your proposal will be filed as a Division 1 Proposal. ';
+            return why + 'Creditors vote on it within 21 days of filing, and the court must then approve it. If it isn’t accepted, you automatically go into bankruptcy, so we’ll review your offer with you carefully before filing.';
         }
 
         function buildDivision1NoteHtml() {
